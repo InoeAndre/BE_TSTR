@@ -12,6 +12,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <stdio.h>
 
 /*
 typedef char MY_TYPE;
@@ -48,6 +49,7 @@ void usage( void ) {
   exit( 0 );
 }
 
+
 int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/,
            double /*streamTime*/, RtAudioStreamStatus status, void *data )
 {
@@ -60,8 +62,35 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
   return 0;
 }
 
+
 int main( int argc, char *argv[] )
 {
+
+//read the binary file
+  FILE * pFile;
+  long lSize;
+  char * buffer;
+  size_t result;
+
+  pFile = fopen ( "impres" , "rb" );
+  if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+
+  // obtain file size:
+  fseek (pFile , 0 , SEEK_END);
+  lSize = ftell (pFile);
+  rewind (pFile);
+
+  // allocate memory to contain the whole file:
+  buffer = (char*) malloc (sizeof(char)*lSize);
+  if (buffer == NULL) {fputs ("Memory error",stderr); exit (2);}
+
+  // copy the file into the buffer:
+  result = fread (buffer,sizeof(double),lSize,pFile);
+  if ((long)result*sizeof(double) != lSize) {printf("result:%u lSize:%u \n", (long)result, lSize); fputs ("Reading error\n ",stderr); exit (3);}
+/* the whole file is now loaded in the memory buffer. */
+
+
+
   unsigned int channels, fs, bufferBytes, oDevice = 0, iDevice = 0, iOffset = 0, oOffset = 0;
 
   // Minimal command-line checking
@@ -136,5 +165,8 @@ int main( int argc, char *argv[] )
  cleanup:
   if ( adac.isStreamOpen() ) adac.closeStream();
 
+  // terminate
+  fclose (pFile);
+  free (buffer);
   return 0;
 }
