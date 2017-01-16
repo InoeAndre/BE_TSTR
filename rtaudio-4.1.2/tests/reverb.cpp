@@ -1,10 +1,11 @@
 /******************************************/
 /*
-  duplex.cpp
+  reverb.cpp
   by Gary P. Scavone, 2006-2007.
+  by Robin Larvor and Inoë ANDRE 2016-2017
 
   This program opens a duplex stream and passes
-  input directly through to the output.
+  input and put a reverb effect directly through to the output.
 */
 /******************************************/
 
@@ -12,7 +13,9 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
-#include <stdio.h>
+#include "include/somefunc.h"
+
+
 
 /*
 typedef char MY_TYPE;
@@ -50,15 +53,55 @@ void usage( void ) {
 }
 
 
-int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/,
-           double /*streamTime*/, RtAudioStreamStatus status, void *data )
+int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
 {
+  int i=0,j=0;
+  int tmp=0;
+  int kmin=0;
+  int kmax=0;
+  double * conv= (double *)malloc(sizeof(conv)*(L+M-1));
+  for(i=0;i<L+M-1;i++)
+    {
+      tmp=0;
+      if(i>=M){
+	kmin=i-M+1;
+      } else {
+	kmin= 1;
+      }
+
+      if(i<L){
+	kmax=i;
+      } else {
+	kmax = L;
+      }
+
+      for(j=kmin;j<=kmax;j++){
+	tmp+=x[j]*h[i-j+1];
+      }
+      conv[i]=tmp;
+    }
+
+  for(i=0;i<L;i++){
+    x[i]=conv[i];
+  }
+  for(i=0;i<M-1;i++){
+    prec[i]=conv[i+L+1];
+  }
+
+  return 0;
+}
+
+
+int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/,
+           double /*streamTime*/, RtAudioStreamStatus status, void *data_stream )
+{
+  
   // Since the number of input and output channels is equal, we can do
   // a simple buffer copy operation here.
   if ( status ) std::cout << "Stream over/underflow detected." << std::endl;
-
-  unsigned int *bytes = (unsigned int *) data;
-  memcpy( outputBuffer, inputBuffer, *bytes );
+  conv_add( ((data)data_stream)->h, (double *)inputBuffer,((data)data_stream)->buffer_prec, ((data)data_stream)->L,((data)data_stream)->M);
+  unsigned int bytes = ((data)data_stream)->L ;
+  memcpy( outputBuffer, inputBuffer, bytes );
   return 0;
 }
 
@@ -69,10 +112,13 @@ int main( int argc, char *argv[] )
 //read the binary file
   FILE * pFile;
   long lSize;
-  char * buffer;
-  size_t result;
+  double * h_filter;
+  size_t nb_buffer;
 
-  pFile = fopen ( "impres" , "rb" );
+ 
+
+  //ouverture du fichier contenant de la réponse impulsionnelle du filtre
+  pFile = fopen ( "../../ressources_tstr_v1_1/c/impres" , "rb" );
   if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
 
   // obtain file size:
@@ -81,13 +127,19 @@ int main( int argc, char *argv[] )
   rewind (pFile);
 
   // allocate memory to contain the whole file:
-  buffer = (char*) malloc (sizeof(char)*lSize);
-  if (buffer == NULL) {fputs ("Memory error",stderr); exit (2);}
+  h_filter = (double*) malloc (sizeof(char)*lSize);
+  if (h_filter == NULL) {fputs ("Memory error",stderr); exit (2);}
 
   // copy the file into the buffer:
-  result = fread (buffer,sizeof(double),lSize,pFile);
-  if ((long)result*sizeof(double) != lSize) {printf("result:%u lSize:%u \n", (long)result, lSize); fputs ("Reading error\n ",stderr); exit (3);}
+  nb_buffer = fread (h_filter,sizeof(double),lSize,pFile);
+  if ((long)nb_buffer*sizeof(double) != lSize) {printf("nb_buffer:%u lSize:%u \n", (long)nb_buffer, lSize); fputs ("Reading error\n ",stderr); exit (3);}
 /* the whole file is now loaded in the memory buffer. */
+
+  // int i = 0;
+  // for(i=1000;i<1010;i++){
+  // std::cout << "h_filter :" << h_filter[i] << std::endl;
+  // }
+
 
 
 
@@ -134,15 +186,29 @@ int main( int argc, char *argv[] )
   RtAudio::StreamOptions options;
   //options.flags |= RTAUDIO_NONINTERLEAVED;
 
+
+
+   //allocation de la structure pour la stream
+  data data_stream = (data)malloc(sizeof(*data_stream));
+  data_stream->h = (double*)calloc(nb_buffer,sizeof(*data_stream->h));
+  data_stream->fft_h = (double*)calloc(nb_buffer,sizeof(*data_stream->fft_h));
+  data_stream->buffer_prec = (double*)calloc( (data_stream->M+bufferFrames * channels * sizeof( MY_TYPE)-1) , sizeof(*data_stream->buffer_prec));
+  
+  //remplir la structure
+  data_stream->h=h_filter;
+  data_stream->M= lSize;
+  data_stream->L= bufferFrames * channels * sizeof( MY_TYPE );
+
+					     
   try {
-    adac.openStream( &oParams, &iParams, FORMAT, fs, &bufferFrames, &inout, (void *)&bufferBytes, &options );
+    adac.openStream( &oParams, &iParams, FORMAT, fs, &bufferFrames, &inout, (void *)data_stream, &options );
   }
   catch ( RtAudioError& e ) {
     std::cout << '\n' << e.getMessage() << '\n' << std::endl;
     exit( 1 );
   }
 
-  bufferBytes = bufferFrames * channels * sizeof( MY_TYPE );
+  data_stream->L = bufferFrames * channels * sizeof( MY_TYPE );
 
   // Test RtAudio functionality for reporting latency.
   std::cout << "\nStream latency = " << adac.getStreamLatency() << " frames" << std::endl;
@@ -167,6 +233,10 @@ int main( int argc, char *argv[] )
 
   // terminate
   fclose (pFile);
-  free (buffer);
+  free (h_filter);
+
+  //faire des free dans data_stream
+
+  free(data_stream);
   return 0;
 }
