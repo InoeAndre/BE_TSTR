@@ -60,6 +60,7 @@ int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
   int kmin=0;
   int kmax=0;
   double * conv= (double *)malloc(sizeof(conv)*(L+M-1));
+
   for(i=0;i<L+M-1;i++)
     {
       tmp=0;
@@ -75,19 +76,22 @@ int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
 	kmax = L;
       }
 
+
       for(j=kmin;j<=kmax;j++){
 	tmp+=x[j]*h[i-j+1];
       }
       conv[i]=tmp;
     }
-
+  
+  //bloc L
   for(i=0;i<L;i++){
     x[i]=conv[i];
   }
+  //bloc M
   for(i=0;i<M-1;i++){
     prec[i]=conv[i+L+1];
   }
-
+  
   return 0;
 }
 
@@ -143,7 +147,7 @@ int main( int argc, char *argv[] )
 
 
 
-  unsigned int channels, fs, bufferBytes, oDevice = 0, iDevice = 0, iOffset = 0, oOffset = 0;
+  unsigned int channels, fs, oDevice = 0, iDevice = 0, iOffset = 0, oOffset = 0;
 
   // Minimal command-line checking
   if (argc < 3 || argc > 7 ) usage();
@@ -189,15 +193,18 @@ int main( int argc, char *argv[] )
 
 
    //allocation de la structure pour la stream
+  
   data data_stream = (data)malloc(sizeof(*data_stream));
+  
   data_stream->h = (double*)calloc(nb_buffer,sizeof(*data_stream->h));
   data_stream->fft_h = (double*)calloc(nb_buffer,sizeof(*data_stream->fft_h));
-  data_stream->buffer_prec = (double*)calloc( (data_stream->M+bufferFrames * channels * sizeof( MY_TYPE)-1) , sizeof(*data_stream->buffer_prec));
+  data_stream->M= nb_buffer;
+  data_stream->L= 512;//bufferFrames * channels * sizeof( MY_TYPE );
+  data_stream->buffer_prec = (double*)calloc( (data_stream->M + data_stream->L - 1) , sizeof(*data_stream->buffer_prec));
   
   //remplir la structure
   data_stream->h=h_filter;
-  data_stream->M= lSize;
-  data_stream->L= bufferFrames * channels * sizeof( MY_TYPE );
+
 
 					     
   try {
@@ -208,7 +215,7 @@ int main( int argc, char *argv[] )
     exit( 1 );
   }
 
-  data_stream->L = bufferFrames * channels * sizeof( MY_TYPE );
+  data_stream->L = 512;//bufferFrames * channels * sizeof( MY_TYPE );
 
   // Test RtAudio functionality for reporting latency.
   std::cout << "\nStream latency = " << adac.getStreamLatency() << " frames" << std::endl;
