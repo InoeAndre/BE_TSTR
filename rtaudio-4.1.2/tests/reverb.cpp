@@ -20,12 +20,12 @@
 /*
 typedef char MY_TYPE;
 #define FORMAT RTAUDIO_SINT8
-*/
+
 
 typedef signed short MY_TYPE;
 #define FORMAT RTAUDIO_SINT16
 
-/*
+
 typedef S24 MY_TYPE;
 #define FORMAT RTAUDIO_SINT24
 
@@ -34,10 +34,10 @@ typedef signed long MY_TYPE;
 
 typedef float MY_TYPE;
 #define FORMAT RTAUDIO_FLOAT32
-
+*/
 typedef double MY_TYPE;
 #define FORMAT RTAUDIO_FLOAT64
-*/
+
 
 void usage( void ) {
   // Error function in case of incorrect command-line
@@ -56,10 +56,10 @@ void usage( void ) {
 int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
 {
   int i=0,j=0;
-  int tmp=0;
+  double tmp=0.0;
   int kmin=0;
   int kmax=0;
-  double * conv= (double *)malloc(sizeof(conv)*(L+M-1));
+  double conv[L+M-1];
 
   for(i=0;i<L+M-1;i++)
     {
@@ -77,7 +77,7 @@ int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
       }
 
 
-      for(j=kmin;j<=kmax;j++){
+      for(j=kmin-1;j<=kmax-1;j++){
 	tmp+=x[j]*h[i-j+1];
       }
       conv[i]=tmp;
@@ -85,11 +85,13 @@ int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
   
   //bloc L
   for(i=0;i<L;i++){
-    x[i]=conv[i];
+    x[i]=conv[i]+prec[i];
+    //printf("x[%d]= %lf",i,x[i]);
   }
   //bloc M
   for(i=0;i<M-1;i++){
-    prec[i]=conv[i+L+1];
+    if(i+L<M-1) prec[i]=conv[i+L]+prec[i+L];
+    else prec[i]=conv[i+L];
   }
   
   return 0;
@@ -103,9 +105,9 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
   // Since the number of input and output channels is equal, we can do
   // a simple buffer copy operation here.
   if ( status ) std::cout << "Stream over/underflow detected." << std::endl;
-  conv_add( ((data)data_stream)->h, (double *)inputBuffer,((data)data_stream)->buffer_prec, ((data)data_stream)->L,((data)data_stream)->M);
+    conv_add( ((data)data_stream)->h, (double *)inputBuffer,((data)data_stream)->buffer_prec, ((data)data_stream)->L,((data)data_stream)->M);
   unsigned int bytes = ((data)data_stream)->L ;
-  memcpy( outputBuffer, inputBuffer, bytes );
+  memcpy( outputBuffer, inputBuffer, sizeof(double)*bytes );
   return 0;
 }
 
@@ -139,11 +141,11 @@ int main( int argc, char *argv[] )
   if ((long)nb_buffer*sizeof(double) != lSize) {printf("nb_buffer:%u lSize:%u \n", (long)nb_buffer, lSize); fputs ("Reading error\n ",stderr); exit (3);}
 /* the whole file is now loaded in the memory buffer. */
 
-  // int i = 0;
-  // for(i=1000;i<1010;i++){
-  // std::cout << "h_filter :" << h_filter[i] << std::endl;
-  // }
-
+  int i = 0;
+  for(i=1000;i<1010;i++){
+  std::cout << "h_filter :" << h_filter[i] << std::endl;
+  }
+  //  return 0;
 
 
 
@@ -195,16 +197,25 @@ int main( int argc, char *argv[] )
    //allocation de la structure pour la stream
   
   data data_stream = (data)malloc(sizeof(*data_stream));
+
+  size_t nb_buffer_short=20000;
+  nb_buffer = nb_buffer_short;
   
   data_stream->h = (double*)calloc(nb_buffer,sizeof(*data_stream->h));
   data_stream->fft_h = (double*)calloc(nb_buffer,sizeof(*data_stream->fft_h));
-  data_stream->M= nb_buffer;
+  data_stream->M= nb_buffer;//mettre nb_buffer pour avoir tout le 
   data_stream->L= 512;//bufferFrames * channels * sizeof( MY_TYPE );
-  data_stream->buffer_prec = (double*)calloc( (data_stream->M + data_stream->L - 1) , sizeof(*data_stream->buffer_prec));
+  data_stream->buffer_prec = (double*)calloc( (data_stream->M - 1) , sizeof(*data_stream->buffer_prec));
   
   //remplir la structure
-  data_stream->h=h_filter;
+  //int i=0;
 
+  double * h_short = (double*)calloc(nb_buffer,sizeof(*h_filter));
+  for(i=0;i<nb_buffer;i++){
+    h_short[i]=h_filter[i];
+  }
+  (data_stream->h)=h_short;
+    //}
 
 					     
   try {
