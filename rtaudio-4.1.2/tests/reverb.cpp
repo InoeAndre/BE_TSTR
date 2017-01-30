@@ -19,6 +19,7 @@
 #define SHORT_FILTER //mettre en commentaire pour avoir la réponse impulsionnelle complète
 #define DOMAINE_FREQUENTIEL //mettre en commentaire pour avoir la convolution add dans le domaine temporelle
 
+
 /*
 typedef char MY_TYPE;
 #define FORMAT RTAUDIO_SINT8
@@ -366,28 +367,41 @@ int conv_add(double* h, double* x,double* conv, double* prec, unsigned int L, lo
 
 /** \fn int conv_add(double* h, double* x,double* prec, unsigned int L, long M)
  *  \brief fonction qui permet de faire une convolution add dans le domaine temporelle
- *  \param h = filtre impulsionnel dans le domaine frequentielle, x = signal à traiter et à mettre dans le buffer
- *  \param conv = tableau de temporaire pour calculer les nouvelles valeurs du buffer 
+ *  \param h = filtre impulsionnel dans le domaine frequentielle,
+ *  \param x = signal à traiter et à mettre dans le buffer
+ *  \param fft_h
  *  \param prec = la portion qui ne peut pas rentrer dans le buffer du précédent calcul
- *  \param L = longueur du buffer, M = longueur du filtre impulsionnel
+ *  \param L = longueur du buffer
+ *  \param M = longueur du filtre impulsionnel
  *  \return 0 quand le calcul est fini 
  */
-int conv_add_freq(double* h, double* x,double* fft_x,double * tmp_x,double* conv, double* prec, unsigned int L, long M)
+int conv_add_freq( double* x,double* fft_x,double * tmp_x,double* fft_h, double* prec, unsigned int L, long M,long FFTOrder)
 {
-  int i = 0;
-  for(i=0;i<L;i++){
-    fft_x[i]=x[i];
-  }
-  
+  int i=0;
+  memcpy(fft_x,x, L*sizeof(double));
   fftr(fft_x,tmp_x,L); // res_fft contient maintenant le résultat de la FFT
+
+  //multiplication des fft
+  for(i=0;i<FFTOrder;i++){
+    fft_x[i]*=fft_h[i];
+ 
+  }
   
   //fft inverse
   //Pour la transformée inverse d’un signal « some_signal » de taille « some_size », utilisez la fonction ifft() de la même manière
-  // double* res_ifft = (double *)malloc(FFTOrder*sizeof(double)*2);
-  // memcpy(res_ifft,some_signal, some_size*sizeof(double));
-  // double* tmp3 = res_ifft + iFFTOrder;
-  // ifft(res_ifft,tmp3,iFFTOrder); // res_ifft contient maintenant la transformée de Fourier inverse
-  
+  double* res_ifft = (double *)malloc(FFTOrder*sizeof(double)*2);
+  memcpy(res_ifft,fft_x, FFTOrder*sizeof(double));
+  double* tmp3 = (res_ifft + FFTOrder);
+  ifft(res_ifft,tmp3,FFTOrder); // res_ifft contient maintenant la transformée de Fourier inverse
+
+  //add
+  for(i=0;i<L;i++){
+    x[i]=res_ifft[i]+prec[i];
+  }
+  memcpy(prec,(res_ifft+L),(M-1)*sizeof(double));
+
+  //liberation de mémoire
+  free(res_ifft);
 
   return 0;
 }
@@ -402,11 +416,12 @@ int inout( void *outputBuffer, void *inputBuffer, unsigned int /*nBufferFrames*/
 #ifndef DOMAINE_FREQUENTIEL
   conv_add( ((data)data_stream)->h, (double *)inputBuffer,((data)data_stream)->conv,((data)data_stream)->buffer_prec, ((data)data_stream)->L,((data)data_stream)->M);
 #else
-  conv_add_freq( ((data)data_stream)->h,(double *)inputBuffer,((data)data_stream)->fft_x, ((data)data_stream)->tmp_x,((data)data_stream)->conv,((data)data_stream)->buffer_prec, ((data)data_stream)->L,((data)data_stream)->M);
+  conv_add_freq((double *)inputBuffer,((data)data_stream)->fft_x, ((data)data_stream)->tmp_x,((data)data_stream)->fft_h,((data)data_stream)->buffer_prec, ((data)data_stream)->L,((data)data_stream)->M,((data)data_stream)->dFFTOrder);
 #endif
   
   unsigned int bytes = ((data)data_stream)->L ;
   memcpy( outputBuffer, inputBuffer, sizeof(double)*bytes );
+  printf("time = %lf s\n",get_process_time());
   return 0;
 }
 
@@ -418,7 +433,7 @@ int main( int argc, char *argv[] )
   FILE * pFile;
   long lSize;
   double * h_filter;
-  size_t nb_buffer;
+  long nb_buffer;
   int i =0;
  
 
@@ -502,13 +517,15 @@ int main( int argc, char *argv[] )
 #endif
   
   data_stream->h = (double*)malloc(nb_buffer*sizeof(*data_stream->h));
+#ifndef DOMAINE_FREQUENTIEL
   data_stream->fft_h = (double*)malloc(nb_buffer*sizeof(*data_stream->fft_h));
+#endif
   data_stream->M= nb_buffer;//mettre nb_buffer pour avoir tout le 
   data_stream->L= 512;//bufferFrames * channels * sizeof( MY_TYPE );
   data_stream->buffer_prec = (double*)calloc( (data_stream->M - 1) , sizeof(*data_stream->buffer_prec));
-  data_stream->fft_x = (double*)calloc( 2*(data_stream->L),sizeof(*data_stream->fft_x));
+  data_stream->fft_x = (double*)calloc( 2*(data_stream->L+data_stream->M-1),sizeof(*data_stream->fft_x));
   data_stream->conv = (double*)malloc( (data_stream->L + data_stream->M - 1)*sizeof(*data_stream->conv));
-  data_stream->tmp_x = (double*)malloc(2*(data_stream->L)*sizeof(*data_stream->tmp_x));
+  data_stream->tmp_x = (double*)malloc(2*(data_stream->L + data_stream->M - 1)*sizeof(*data_stream->tmp_x));
   
   //remplir la structure
 
@@ -525,10 +542,11 @@ int main( int argc, char *argv[] )
   //ordre des fft
   size_t FFTOrder = get_nextpow2(data_stream->M);
   double* res_fft=(double *)malloc(FFTOrder*sizeof(double)*2);
-  memcpy(res_fft,data_stream->h,data_stream->M*sizeof(double));  
+  memcpy(res_fft,data_stream->h,FFTOrder*sizeof(double));  
   double* tmp = (res_fft + FFTOrder);
   fftr(res_fft,tmp,FFTOrder); // res_fft contient maintenant le résultat de la FFT
   data_stream->fft_h = res_fft;
+  data_stream->dFFTOrder=FFTOrder;
 
   //tmp pour le signal
   data_stream->tmp_x = (data_stream->fft_x + data_stream->L);  
