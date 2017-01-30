@@ -16,7 +16,7 @@
 #include "somefunc.h"
 
 
-#define SHORT_FILTER //mettre en commentaire pour avoir la réponse impulsionnelle complète
+//#define SHORT_FILTER //mettre en commentaire pour avoir la réponse impulsionnelle complète
 #define DOMAINE_FREQUENTIEL //mettre en commentaire pour avoir la convolution add dans le domaine temporelle
 
 
@@ -322,10 +322,10 @@ double get_process_time() {
  */
 int conv_add(double* h, double* x,double* conv, double* prec, unsigned int L, long M)
 {
-  int i=0,j=0;
+  unsigned int i=0,j=0;
   double tmp=0.0;
-  int kmin=0;
-  int kmax=0;
+  unsigned int kmin=0;
+  unsigned int kmax=0;
 
   
   for(i=0;i<L+M-1;i++)
@@ -377,7 +377,7 @@ int conv_add(double* h, double* x,double* conv, double* prec, unsigned int L, lo
  */
 int conv_add_freq( double* x,double* fft_x,double * tmp_x,double* fft_h, double* prec, unsigned int L, long M,long FFTOrder)
 {
-  int i=0;
+  long i=0;
   memcpy(fft_x,x, L*sizeof(double));
   fftr(fft_x,tmp_x,L); // res_fft contient maintenant le résultat de la FFT
 
@@ -394,9 +394,10 @@ int conv_add_freq( double* x,double* fft_x,double * tmp_x,double* fft_h, double*
   double* tmp3 = (res_ifft + FFTOrder);
   ifft(res_ifft,tmp3,FFTOrder); // res_ifft contient maintenant la transformée de Fourier inverse
 
+  unsigned int j=0;
   //add
-  for(i=0;i<L;i++){
-    x[i]=res_ifft[i]+prec[i];
+  for(j=0;j<L;j++){
+    x[j]=res_ifft[j]+prec[j];
   }
   memcpy(prec,(res_ifft+L),(M-1)*sizeof(double));
 
@@ -447,16 +448,16 @@ int main( int argc, char *argv[] )
   rewind (pFile);
 
   // allocate memory to contain the whole file:
-  h_filter = (double*) malloc (sizeof(char)*lSize);
+  h_filter = (double*) malloc (lSize);
   if (h_filter == NULL) {fputs ("Memory error",stderr); exit (2);}
 
   // copy the file into the buffer:
   nb_buffer = fread (h_filter,sizeof(double),lSize,pFile);
-  if ((long)nb_buffer*sizeof(double) != lSize) {printf("nb_buffer:%u lSize:%u \n", (long)nb_buffer, lSize); fputs ("Reading error\n ",stderr); exit (3);}
+  if (nb_buffer*sizeof(double) != lSize) {printf("nb_buffer:%u lSize:%u \n", nb_buffer, lSize); fputs ("Reading error\n ",stderr); exit (3);}
 /* the whole file is now loaded in the memory buffer. */
 
   // //DEBUG POUR VOIR SI LE FILTRE LU EST COHERENTE
-  // for(i=1000;i<1010;i++){
+  // for(i=100;i<20000;i++){
   // std::cout << "h_filter :" << h_filter[i] << std::endl;
   // }
   
@@ -516,7 +517,7 @@ int main( int argc, char *argv[] )
   nb_buffer = nb_buffer_short;
 #endif
   
-  data_stream->h = (double*)malloc(nb_buffer*sizeof(*data_stream->h));
+  printf("nb_buffer = %u\nlSize = %u\n",nb_buffer,lSize);  
 #ifndef DOMAINE_FREQUENTIEL
   data_stream->fft_h = (double*)malloc(nb_buffer*sizeof(*data_stream->fft_h));
 #endif
@@ -530,19 +531,22 @@ int main( int argc, char *argv[] )
   //remplir la structure
 
 #ifdef SHORT_FILTER
-  double * h_short = (double*)malloc(nb_buffer*sizeof(*h_short));
-  for(i=0;i<nb_buffer;i++){
-    h_short[i]=h_filter[i];
-  }
+  double * h_short = (double*)malloc(nb_buffer);
+  memcpy(h_short,h_filter,nb_buffer);
+  // for(i=0;i<nb_buffer;i++){
+  //   h_short[i]=h_filter[i];
+  // }
   (data_stream->h)=h_short;
 #else
   (data_stream->h)=h_filter;
-#endif  
+#endif
+  
+  
   //fft de la réponse impulsionnelle
   //ordre des fft
-  size_t FFTOrder = get_nextpow2(data_stream->M);
+  long FFTOrder = get_nextpow2(data_stream->M);
   double* res_fft=(double *)malloc(FFTOrder*sizeof(double)*2);
-  memcpy(res_fft,data_stream->h,FFTOrder*sizeof(double));  
+  memcpy(res_fft,data_stream->h,data_stream->M);  
   double* tmp = (res_fft + FFTOrder);
   fftr(res_fft,tmp,FFTOrder); // res_fft contient maintenant le résultat de la FFT
   data_stream->fft_h = res_fft;
@@ -551,6 +555,7 @@ int main( int argc, char *argv[] )
   //tmp pour le signal
   data_stream->tmp_x = (data_stream->fft_x + data_stream->L);  
 
+  std::cout << "init OK" << std::endl;
 					     
   try {
     adac.openStream( &oParams, &iParams, FORMAT, fs, &bufferFrames, &inout, (void *)data_stream, &options );
